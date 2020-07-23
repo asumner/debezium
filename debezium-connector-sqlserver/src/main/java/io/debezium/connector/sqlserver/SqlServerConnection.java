@@ -54,6 +54,7 @@ public class SqlServerConnection extends JdbcConnection {
     private static final String GET_MIN_LSN = "SELECT sys.fn_cdc_get_min_lsn('#')";
     private static final String LOCK_TABLE = "SELECT * FROM [#] WITH (TABLOCKX)";
     private static final String SQL_SERVER_VERSION = "SELECT @@VERSION AS 'SQL Server Version'";
+    private static final String SQL_SERVER_EDITION = "SELECT SERVERPROPERTY('Edition') AS 'SQL Server Edition'";
     private final String lsnToTimestamp;
     private static final String INCREMENT_LSN = "SELECT sys.fn_cdc_increment_lsn(?)";
     private static final String GET_ALL_CHANGES_FOR_TABLE = "SELECT * FROM cdc.[fn_cdc_get_all_changes_#](?, ?, N'all update old')";
@@ -470,14 +471,39 @@ public class SqlServerConnection extends JdbcConnection {
         try {
             // As per https://www.mssqltips.com/sqlservertip/1140/how-to-tell-what-sql-server-version-you-are-running/
             // Always beginning with 'Microsoft SQL Server NNNN'
+            // DBZ- 2373
+            // First check if this is an Azure edition as the versioning doesn't follow the above assumption
+            // (correct implementation should use product version numbers, Azure >= v12 OR SQL >= v13
+            if(isAzureSqlServerEdition)
+            {
+                return 2019; // Azure SQL will always be greater than 2016 and will support AtTimeZone
+            }
+            else
+            {            
             String version = queryAndMap(
                     SQL_SERVER_VERSION,
                     singleResultMapper(rs -> rs.getString(1), "Could not obtain SQL Server version"));
 
             return Integer.valueOf(version.substring(21, 25));
+            }
         }
         catch (Exception e) {
             throw new RuntimeException("Couldn't obtain database server version", e);
+        }
+    }
+
+    private boolean isAzureSqlServerEdition() {
+        try {           
+
+            // https://docs.microsoft.com/en-us/sql/t-sql/functions/serverproperty-transact-sql?view=sql-server-ver15
+            String edition = queryAndMap(
+                    SQL_SERVER_EDITION,
+                    singleResultMapper(rs -> rs.getString(1), "Could not obtain SQL Server Edition"));
+
+            return (edition.equals("SQL Azure"));
+        }
+        catch (Exception e) {
+            throw new RuntimeException("Couldn't obtain database server edition", e);
         }
     }
 }
